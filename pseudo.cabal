@@ -1,0 +1,98 @@
+name:                pseudo
+version:             0.1.0.0
+-- synopsis:
+-- description:
+homepage:            https://github.com/githubuser/pseudo#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Author name here
+maintainer:          example@example.com
+copyright:           2018 Author name here
+category:            Web
+build-type:          Simple
+extra-source-files:  README.md
+                   , cbits/*.h
+cabal-version:       >=1.10
+
+                     
+library
+  hs-source-dirs:      src
+
+  c-sources:            cbits/fork_exec_with_pty.c
+  cc-options:           -Wall -Wextra -pedantic -std=c99
+  include-dirs:         cbits
+  includes:             cbits/fork_exec_with_pty.h
+  
+  ghc-options:         -Wall
+  exposed-modules:     Lib
+                     , Protolude.Extended
+  build-depends:       base >= 4.7 && < 5
+                     , protolude
+                     , text
+                     , containers
+                     , process
+                     , unix
+  default-language:    Haskell2010
+  default-extensions:  NoImplicitPrelude
+                     , OverloadedStrings
+                     , ScopedTypeVariables
+                     , DuplicateRecordFields
+                     , LambdaCase
+                     , TupleSections
+                     , NamedFieldPuns
+                     , FlexibleInstances
+                     , MultiParamTypeClasses
+                     , TypeApplications
+                     , FlexibleContexts
+
+  if os(linux) || os(freebsd)
+    extra-libraries: util
+                     
+executable pseudo
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , protolude
+                     , pseudo
+  default-language:    Haskell2010
+  default-extensions:  NoImplicitPrelude
+                     , OverloadedStrings
+                     , ScopedTypeVariables
+                     , DuplicateRecordFields
+                     , LambdaCase
+                     , TupleSections
+                     , NamedFieldPuns
+                     , FlexibleInstances
+                     , MultiParamTypeClasses
+                     , TypeApplications
+                     , FlexibleContexts
+
+test-suite pseudo-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:       base
+                     , pseudo
+                     , protolude
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+  default-extensions:  NoImplicitPrelude
+                     , OverloadedStrings
+                     , ScopedTypeVariables
+                     , DuplicateRecordFields
+                     , LambdaCase
+                     , TupleSections
+                     , NamedFieldPuns
+                     , FlexibleInstances
+                     , MultiParamTypeClasses
+                     , TypeApplications
+                     , FlexibleContexts
+
+source-repository head
+  type:     git
+  location: https://github.com/githubuser/pseudo
+
+
+
+
