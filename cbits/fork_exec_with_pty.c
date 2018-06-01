@@ -7,8 +7,8 @@
 
 #include "fork_exec_with_pty.h"
 
-//char* args[] = {"/bin/bash", "-i", NULL };
-char* args[] = {"ls", "-al", NULL };
+char* args[] = {"/bin/bash", "-i", NULL };
+//char* args[] = {"ls", "-al", NULL };
 /* //char* args[] = {"whoami", NULL }; */
 
 /* char buff[1024]; */

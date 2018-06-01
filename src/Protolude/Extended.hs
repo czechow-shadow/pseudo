@@ -2,9 +2,9 @@ module Protolude.Extended where
 
 import           Protolude
 
+import           Data.List       (unzip)
 import qualified Data.Map.Strict as M
 import qualified Data.Text.IO    as T
-import Data.List (unzip)
 
 
 mapLeft :: (a -> c) -> Either a b -> Either c b
