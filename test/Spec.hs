@@ -1,2 +1,10 @@
+import Protolude
+
+import Test.Tasty
+
+import LibProp
+
+
+
 main :: IO ()
-main = putStrLn "Test suite not yet implemented"
+main = defaultMain $ testGroup "X" [LibProp.tests]

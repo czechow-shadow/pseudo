@@ -105,24 +105,22 @@ sockToPty sock fd =
 
 type LeftOvers = Text -- ByteString
 
-data ParsePhase = PPIn | PPOut deriving Show
+data ParsePhase = PPIn | PPOut deriving (Eq, Show)
 
 
 data CryptCtx = CryptCtx
-data ParseCtx = ParseCtx ParsePhase LeftOvers deriving Show
+data ParseCtx = ParseCtx ParsePhase LeftOvers
+              deriving (Eq, Show)
 
-empytParseCtx :: ParseCtx
-empytParseCtx = ParseCtx PPOut ""
+emptyParseCtx :: ParseCtx
+emptyParseCtx = ParseCtx PPOut ""
 
-data Message = Message Text deriving Show
+data Message = Message Text deriving (Eq, Show)
 type ErrText = Text
 
 
--- go3 :: IO ()
--- go3 = runStateT go3' (ParseCtx PPOut "") >>= putText . show
-
 go3 :: IO ()
-go3 = go' empytParseCtx
+go3 = go' emptyParseCtx
   where
     go' pctx = receive0 >>= \case
       Just xs -> do let (res, pctx') = receive' xs pctx
@@ -133,7 +131,10 @@ go3 = go' empytParseCtx
 
 go3' :: (MonadIO m, MonadState ParseCtx m) => m [Either ErrText Message]
 go3' = receive0 >>= \case
-  Just xs -> (++) <$> receiveM xs <*> go3'
+  Just xs -> do
+    x <- receiveM xs
+    putText $ "Received: " <> show x
+    pure x
   Nothing -> pure []
 
 
@@ -165,13 +166,11 @@ receive'' buf (ParseCtx pp lo) = case pp of
     (xs, ys) -> first ((Left $ garbage xs):) $
                       receive'' ys (ParseCtx PPIn "")
   PPIn -> case T.span (/= '>') (lo <> buf) of
-    (xs, "") -> ([], ParseCtx pp xs)
+    (xs, "") -> ([], ParseCtx PPOut xs)
     (xs, ys) -> first ((Right $ Message $ xs <> T.take 1 ys):) $
                       receive'' (T.drop 1 ys) (ParseCtx PPOut "")
   where
     garbage xs = "Dropped garbage: [" <> xs <> "]"
-
-
 
 
 recvMessage :: Socket -> IO ()
