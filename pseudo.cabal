@@ -26,6 +26,10 @@ library
   ghc-options:         -Wall
   exposed-modules:     Lib
                      , Protolude.Extended
+                     , Pty
+                     , Message
+                     , Server
+                     , Client
   build-depends:       base >= 4.7 && < 5
                      , protolude
                      , text
@@ -34,6 +38,10 @@ library
                      , unix
                      , bytestring
                      , network
+                     , attoparsec
+                     , cryptocipher
+                     , crypto-cipher-types
+                     , base64-bytestring
   default-language:    Haskell2010
   default-extensions:  NoImplicitPrelude
                      , OverloadedStrings
@@ -74,7 +82,7 @@ test-suite pseudo-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
---  test-module:         LibProp
+  other-modules:       MessageProp
   build-depends:       base
                      , pseudo
                      , protolude

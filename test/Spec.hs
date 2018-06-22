@@ -2,9 +2,8 @@ import Protolude
 
 import Test.Tasty
 
-import LibProp
-
+import MessageProp
 
 
 main :: IO ()
-main = defaultMain $ testGroup "X" [LibProp.tests]
+main = defaultMain $ testGroup "X" [MessageProp.tests]
