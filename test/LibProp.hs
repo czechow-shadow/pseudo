@@ -3,15 +3,15 @@
 
 module LibProp where
 
-import Protolude
+import           Protolude
 
-import Test.Tasty
-import Test.Tasty.TH
-import Test.Tasty.QuickCheck
+import           Test.Tasty
+import           Test.Tasty.QuickCheck
+import           Test.Tasty.TH
 
-import qualified Data.Text as T
+import qualified Data.Text             as T
 
-import Lib
+import           Lib
 
 
 instance Arbitrary Text where
@@ -54,7 +54,7 @@ genPartOk = do
   l <- choose (0, length xs)
   let (ys, zs) = first (map wrapStxEtx) $ splitAt l xs
   shuffle $ ys ++ zs
-  
+
 
 tests :: TestTree
 tests = $(testGroupGenerator)

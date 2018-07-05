@@ -1,30 +1,30 @@
 module Message
   ( NetworkBytes (..)
   , SecMessage (..)
-  , NetworkMessage (..)
+  , EncPtyData (..)
   , Iv (..)
   , Secret (..)
-  , ParseCtx (..)
+  , ParseC
   , CryptoCtx (..)
   , Ctx (..)
+  , SeqNumFmt (..)
+  , mkParseC
   , mkCtx
-  , tokenizeM
-  , tokenize
   , mkCryptoCtx
-  , emptyParseCtx
   , stx
   , etx
   , serialize
-  , deserialize
-  , combine
+  , deserialize -- FIXME: change name
   , mkMessage
   , readMessage
+  , toTransport
+  , fromTransport
   ) where
 
 import           Protolude
 import           Protolude.Extended
 
-import qualified Data.Attoparsec.ByteString as P
+import qualified Data.Attoparsec.ByteString as A
 import qualified Data.ByteString            as BS
 import qualified Data.ByteString.Base64     as BS64
 import qualified Data.ByteString.Char8      as BSC
@@ -40,6 +40,8 @@ import qualified Crypto.Cipher.Types        as C
 
 import           Text.Printf                (printf)
 
+import           Pipes
+
 import           Pty
 
 
@@ -52,7 +54,6 @@ newtype SeqNum = SeqNum { unSeqNum :: Int }
 newtype SeqNumFmt = SeqNumFmt { unSeqNumFmt :: ByteString }
                   deriving (Eq, Show)
 
-
 data SecMessage = SecMessage { seqNumFmt :: SeqNumFmt
                              , authTag   :: AuthTag
                              , ptyData   :: EncPtyData
@@ -61,15 +62,7 @@ data SecMessage = SecMessage { seqNumFmt :: SeqNumFmt
 newtype NetworkBytes = NetworkBytes { unNetworkBytes :: ByteString }
                      deriving (Eq, Show)
 
-newtype NetworkMessage = NetworkMessage { unNetworkMessage :: ByteString }
-                         deriving (Eq, Show)
-
-
-data ParsePhase = PPIn | PPOut deriving (Eq, Show)
-type LeftOvers = NetworkBytes
-
-data ParseCtx = ParseCtx ParsePhase LeftOvers
-              deriving (Eq, Show)
+type ParseC a = ByteString -> A.Result (Either ErrText a)
 
 
 newtype Iv = Iv { unIv :: ByteString } deriving Show
@@ -81,7 +74,6 @@ data CryptoCtx = CryptoCtx { seqNum :: SeqNum
 
 data Ctx = Ctx { readCryptoCtx  :: CryptoCtx
                , writeCryptoCtx :: CryptoCtx
-               , parseCtx       :: ParseCtx
                }
 
 stx :: Word8
@@ -99,13 +91,13 @@ authTagLen = 16
 msgCounterLen :: Int
 msgCounterLen = 4
 
-
 -------------------------------------------------------------------------------
 --                            PtyData to network
 -------------------------------------------------------------------------------
 mkMessage :: PtyData -> CryptoCtx -> (SecMessage, CryptoCtx)
 mkMessage (PtyData d) CryptoCtx{seqNum, aead} =
-  let aead' = C.aeadAppendHeader aead snf
+  let snf = fmtNum msgCounterLen $ unSeqNum seqNum
+      aead' = C.aeadAppendHeader aead snf
       (ed, aead'') = C.aeadEncrypt aead' d
       at = C.aeadFinalize aead'' authTagLen
       msg = SecMessage { seqNumFmt = SeqNumFmt snf
@@ -114,82 +106,53 @@ mkMessage (PtyData d) CryptoCtx{seqNum, aead} =
                        }
       ctx' = CryptoCtx { seqNum = nextSeqNum seqNum, aead = aead'' }
   in (msg, ctx')
-  where
-    snf = fmtNum msgCounterLen $ unSeqNum seqNum
 
-serialize :: SecMessage -> NetworkMessage
+
+serialize :: SecMessage -> NetworkBytes
 serialize SecMessage {seqNumFmt, authTag = AuthTag at, ptyData} =
-  NetworkMessage $
+  NetworkBytes $
      BS.singleton stx
   <> unSeqNumFmt seqNumFmt
   <> BS64.encode (at <> unEncPtyData ptyData)
   <> BS.singleton etx
 
-combine :: [NetworkMessage] -> NetworkBytes
-combine = NetworkBytes . BS.concat . map unNetworkMessage
-
 -------------------------------------------------------------------------------
 --                           network to PtyData
 -------------------------------------------------------------------------------
--- FIXME: transformers here???
-tokenizeM :: (MonadState ParseCtx m) =>
-             NetworkBytes -> m [Either ErrText NetworkMessage]
-tokenizeM xs = do
-  ctx <- get
-  let (res, ctx') = tokenize xs ctx
-  put ctx'
-  return res
+deserialize :: ParseC SecMessage -> ParseC SecMessage -> NetworkBytes
+             -> ([Either ErrText SecMessage], ParseC SecMessage)
+deserialize p0 pc (NetworkBytes bs) = parse p0 pc bs
 
-tokenize :: NetworkBytes -> ParseCtx
-         -> ([Either ErrText NetworkMessage], ParseCtx)
-tokenize (NetworkBytes buf) pctx@(ParseCtx _ (NetworkBytes leftOvers))
- | BS.length buf + BS.length leftOvers > maxMsgLen =
-   ( [Left "SecMessage too long, contents dropped"]
-   , ParseCtx PPOut $ NetworkBytes ""
-   )
- | otherwise = tokenize' (NetworkBytes buf) pctx
+parse :: ParseC a -> ParseC a -> ByteString -> ([Either ErrText a], ParseC a)
+parse p0 pc input = case pc input of
+  A.Done "" r     -> ([r], p0)
+  A.Done i r      -> first (r:) $ parse p0 p0 i
+  A.Partial f     -> ([], f)
+  A.Fail "" _ msg -> ([Left $ toS msg], p0)
+  A.Fail i _ _    -> parse p0 p0 $ BS.drop 1 i
 
-tokenize' :: NetworkBytes -> ParseCtx
-          -> ([Either ErrText NetworkMessage], ParseCtx)
-tokenize' (NetworkBytes buf) (ParseCtx pp (NetworkBytes lo)) =
-  case pp of
-    PPOut -> case BS.span (/= stx) (lo <> buf) of
-      ("", ys) -> tokenize' (NetworkBytes ys) (ParseCtx PPIn $ NetworkBytes "")
-      (xs, "") -> ([Left $ garbage xs], ParseCtx pp $ NetworkBytes "")
-      (xs, ys) -> first ((Left $ garbage xs):) $
-                        tokenize' (NetworkBytes ys)
-                                   (ParseCtx PPIn $ NetworkBytes "")
-    PPIn -> case BS.span (/= etx) (lo <> buf) of
-      (xs, "") -> ([], ParseCtx PPOut $ NetworkBytes xs)
-      (xs, ys) -> first ((Right $ NetworkMessage $ xs <> BS.take 1 ys):) $
-                        tokenize' (NetworkBytes $ BS.drop 1 ys)
-                                   (ParseCtx PPOut $ NetworkBytes "")
+mkParseC :: Int -> ParseC SecMessage
+mkParseC sz = A.parse $ do
+  _ <- A.word8 stx
+  sn <- A.take msgCounterLen
+  (at, bs) <- fmap (BS.splitAt authTagLen) $ A.scan (succ sz) f >>= rdBase64
+  _ <- A.word8 etx
+  if BS.length bs > sz
+    then pure $ Left $ "Message size of " <> show sz <> " exceeded"
+    else pure $ Right $ SecMessage { seqNumFmt = SeqNumFmt sn
+                                   , authTag = AuthTag at
+                                   , ptyData = EncPtyData bs
+                                   }
   where
-    garbage xs = "Dropped garbage of length " <> (show $ BS.length xs)
+    f :: Int -> Word8 -> Maybe Int
+    f 0 _ = Nothing
+    f n w | w /= etx = Just $ pred n
+          | otherwise = Nothing
 
-
-deserialize :: NetworkMessage -> Either ErrText SecMessage
-deserialize (NetworkMessage xs) = do
-  checkLen
-  mapLeft show $ P.eitherResult $ P.parse msgP xs
-  where
-    checkLen | BS.length xs > maxMsgLen = Left "Message length exceeded"
-             | otherwise = pure ()
-    msgP = do
-      _ <- P.word8 stx
-      sn <- P.take msgCounterLen
-      (at, bs) <- fmap (BS.splitAt authTagLen) $
-                       P.takeWhile (/= etx) >>= rdBase64
-      _ <- P.word8 etx
-      pure SecMessage { seqNumFmt = SeqNumFmt sn
-                      , authTag = AuthTag at
-                      , ptyData = EncPtyData bs
-                      }
-    rdBase64 :: ByteString -> P.Parser ByteString
+    rdBase64 :: ByteString -> A.Parser ByteString
     rdBase64 ys = case BS64.decode ys of
-      Right v -> pure v
+      Right v -> pure $! v
       Left e  -> fail e
-
 
 readMessage :: SecMessage -> CryptoCtx -> Either ErrText (PtyData, CryptoCtx)
 readMessage SecMessage{seqNumFmt, authTag, ptyData}
@@ -219,13 +182,9 @@ mkCtx :: (Iv, Secret) -> (Iv, Secret) -> Either ErrText Ctx
 mkCtx (iv, sec) (iv', sec') =
   Ctx <$> mkCryptoCtx iv sec
       <*> mkCryptoCtx iv' sec'
-      <*> pure emptyParseCtx
 
 mkCryptoCtx :: Iv -> Secret -> Either ErrText CryptoCtx
 mkCryptoCtx iv sec = CryptoCtx <$> pure (SeqNum 5678) <*> mkAEAD iv sec
-
-emptyParseCtx :: ParseCtx
-emptyParseCtx = ParseCtx PPOut (NetworkBytes "")
 
 mkAEAD :: Iv -> Secret -> Either ErrText (C.AEAD C.AES256)
 mkAEAD iv secret = do
@@ -243,6 +202,42 @@ nextSeqNum (SeqNum v) = SeqNum $ succ v `mod` (10 :: Int)^msgCounterLen
 fmtNum :: Int -> Int -> ByteString
 fmtNum l = BSC.pack . printf "%0*d" l
 
+-------------------------------------------------------------------------------
+--                             Pipes interface
+-------------------------------------------------------------------------------
+toTransport :: CryptoCtx -> Pipe PtyData NetworkBytes IO ()
+toTransport cctx = toT1 cctx >-> toT2
+
+toT1 :: CryptoCtx -> Pipe PtyData SecMessage IO ()
+toT1 ctx = do
+  x <- await
+  let (r, ctx') = mkMessage x ctx
+  yield r
+  toT1 ctx'
+
+toT2 :: Pipe SecMessage NetworkBytes IO ()
+toT2 = forever $ await >>= yield . serialize
 
 
+fromTransport :: CryptoCtx -> Pipe NetworkBytes PtyData IO ()
+fromTransport cctx = fromT1 >-> fromT2 cctx
+
+fromT1 :: Pipe NetworkBytes SecMessage IO ()
+fromT1 = from' pcc pcc
+  where
+    pcc = mkParseC maxMsgLen
+    from' p0 p1 = do
+      x <- await
+      let (rs'es, p1') = deserialize p0 p1 x
+      mapM_ (\v -> putText $ "WARN: " <> v) $ lefts rs'es
+      mapM_ yield $ rights rs'es
+      from' p0 p1'
+
+fromT2 :: CryptoCtx -> Pipe SecMessage PtyData IO ()
+fromT2 ctx = do
+  x <- await
+  case readMessage x ctx of
+    Right (d, ctx') -> do yield d
+                          fromT2 ctx'
+    Left e -> do putText $ "Fatal error: " <> e
 

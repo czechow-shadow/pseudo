@@ -1,8 +1,8 @@
-import Protolude
+import           Protolude
 
-import Test.Tasty
+import           Test.Tasty
 
-import MessageProp
+import           MessageProp
 
 
 main :: IO ()

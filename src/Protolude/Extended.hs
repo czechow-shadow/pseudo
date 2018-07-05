@@ -29,3 +29,6 @@ hPutText = \h -> liftIO . T.hPutStrLn h
 unzip :: [(a, b)] -> ([a], [b])
 unzip = Data.List.unzip
 
+liftEither :: MonadError e m => Either e a -> m a
+liftEither (Right x) = pure x
+liftEither (Left e)  = throwError e
