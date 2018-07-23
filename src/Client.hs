@@ -16,6 +16,7 @@ import           Pty               (PtyData (..))
 
 data ClientCtx = ClientCtx { messageCtx :: Msg.Ctx }
 
+
 bsize :: Int
 bsize = 4096
 
@@ -36,7 +37,7 @@ talk :: Msg.Ctx -> Socket -> IO ()
 talk Msg.Ctx{readCryptoCtx, writeCryptoCtx} sock = do
   withAsync (sockToCons stdout sock readCryptoCtx) $ \a1 -> do
     withAsync (consToSock stdin sock writeCryptoCtx) $ \a2 -> do
-      void $ waitAnyCancel [a1, a2]
+      void $ waitAny [a1, a2]
       putText "Finished"
 
 consToSock :: Handle -> Socket -> CryptoCtx -> IO ()

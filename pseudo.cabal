@@ -30,6 +30,9 @@ library
                      , Message
                      , Server
                      , Client
+                     , Boot.Transport
+                     , Boot.Server
+                     , Boot.Client
   build-depends:       base >= 4.7 && < 5
                      , protolude
                      , text

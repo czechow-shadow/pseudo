@@ -49,3 +49,27 @@ goclient = do
       hSetEcho stdout False
       client (ClientCtx ctx) `finally` hSetEcho stdout True
     Left e    -> putText $ "Error: " <> e
+
+go3 :: IO ()
+go3 = do
+  mv <- newEmptyMVar
+  go3' mv
+  where
+    go3' mv = do
+      putStr ("> " :: Text)
+      getLine >>= \case
+        "take" -> do
+          r <- tryPutMVar mv ()
+          if r
+            then void $ async $ do putText ">> Running server"
+                                   (do threadDelay $ 1000 * 1000 * 10
+                                       threadDelay $ 10
+                                     ) `finally` (do takeMVar mv
+                                                     putText ">> Stopped server")
+            else do putText ">> Server already running"
+          go3' mv
+        "quit" -> pure ()
+        xs -> do putText $ "Ignoring " <> xs
+                 go3' mv
+
+
